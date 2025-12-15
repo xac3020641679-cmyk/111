@@ -1,47 +1,80 @@
 package com.cafeteria.service;
 
-import com.cafeteria.domain.OrderForm;
+import com.cafeteria.dto.OrderItemRequest;
+import com.cafeteria.dto.OrderRequest;
+import com.cafeteria.model.MenuSnapshotItem;
+import com.cafeteria.model.OrderForm;
+import com.cafeteria.model.OrderItem;
+import com.cafeteria.model.SystemSetting;
+import com.cafeteria.repository.MenuSnapshotItemRepository;
+import com.cafeteria.repository.OrderItemRepository;
+import com.cafeteria.repository.OrderRepository;
+import com.cafeteria.repository.SystemSettingRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalTime;
+import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class OrderServiceImpl implements OrderService {
-    // NOTE: This implementation is a skeleton. Integrate with your DAO/repository layer.
+    private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
+    private final MenuSnapshotItemRepository menuSnapshotItemRepository;
+    private final SystemSettingRepository systemSettingRepository;
 
-    @Override
-    public OrderForm placeOrder(Long userId, Long menuSnapshotId, OrderForm order) throws Exception {
-        // 1. check deadline from system settings (pseudo)
-        String deadline = "09:00"; // TODO: load from SystemSetting repository
-        LocalTime dead = LocalTime.parse(deadline);
-        LocalTime now = LocalTime.now();
-
-        if (now.isAfter(dead)) {
-            throw new Exception("订餐截止时间已过，无法为当天下单。");
-        }
-
-        // 2. check if user already has an order for today (pseudo)
-        LocalDate today = LocalDate.now();
-        // TODO: query orders by userId and orderDate
-        boolean exists = false;
-        if (exists) {
-            throw new Exception("今天已经有一张订单，不能重复下单。若需修改请使用修改接口。");
-        }
-
-        // 3. validate items, calculate totals, save order
-        order.setUserId(userId);
-        order.setCreatedAt(LocalDateTime.now());
-        order.setOrderDate(today);
-        // TODO: compute totalPrice from items
-
-        // TODO: persist order via repository
-        return order;
+    public OrderServiceImpl(OrderRepository orderRepository, OrderItemRepository orderItemRepository, MenuSnapshotItemRepository menuSnapshotItemRepository, SystemSettingRepository systemSettingRepository) {
+        this.orderRepository = orderRepository;
+        this.orderItemRepository = orderItemRepository;
+        this.menuSnapshotItemRepository = menuSnapshotItemRepository;
+        this.systemSettingRepository = systemSettingRepository;
     }
 
     @Override
-    public void cancelOrder(Long orderId) throws Exception {
-        // TODO: implement cancel logic
+    @Transactional
+    public void placeOrder(OrderRequest request) {
+        // check deadline
+        Optional<SystemSetting> deadlineOpt = systemSettingRepository.findByKey("order_deadline");
+        if (deadlineOpt.isPresent()) {
+            String v = deadlineOpt.get().getValue();
+            // simple check: if deadline is 'CLOSED' -> reject
+            if ("CLOSED".equalsIgnoreCase(v)) {
+                throw new IllegalStateException("Ordering is closed");
+            }
+        }
+
+        LocalDate today = LocalDate.now();
+        if (orderRepository.existsByUserIdAndOrderDate(request.getUserId(), today)) {
+            throw new IllegalStateException("User already ordered today");
+        }
+
+        OrderForm order = new OrderForm();
+        order.setUserId(request.getUserId());
+        order.setOrderDate(today);
+
+        BigDecimal total = BigDecimal.ZERO;
+
+        for (OrderItemRequest i : request.getItems()) {
+            // find price from latest snapshot item by recipe id - naive: first found
+            MenuSnapshotItem snapshotItem = menuSnapshotItemRepository.findBySnapshotIdAndRecipeId(i.getSnapshotId(), i.getRecipeId());
+            BigDecimal unit = snapshotItem != null ? snapshotItem.getPrice() : BigDecimal.ZERO;
+            OrderItem oi = new OrderItem();
+            oi.setOrder(order);
+            oi.setRecipeId(i.getRecipeId());
+            oi.setRecipeName(i.getRecipeName());
+            oi.setQuantity(i.getQuantity());
+            oi.setUnitPrice(unit);
+
+            BigDecimal subtotal = unit.multiply(BigDecimal.valueOf(i.getQuantity()));
+            oi.setSubtotal(subtotal);
+            order.getItems().add(oi);
+            total = total.add(subtotal);
+        }
+
+        order.setTotal(total);
+        orderRepository.save(order);
     }
 }
