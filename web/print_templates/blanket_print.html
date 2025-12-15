@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>配餐打印模板</title>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    .employee-block { margin-bottom: 30px; page-break-inside: avoid; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #333; padding: 6px; text-align: left; }
+    .footer { margin-top: 10px; font-size: 12px; }
+    @media print { .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <!-- Use server-side templating to fill blocks -->
+  <div class="employee-block">
+    <div>员工：{{userName}} &nbsp;&nbsp; 联系电话：{{phone}}</div>
+    <div>工位信息：{{workstation}}</div>
+    <table>
+      <thead>
+        <tr><th>菜名</th><th>单位</th><th>分量</th></tr>
+      </thead>
+      <tbody>
+        {{#items}}
+        <tr><td>{{name}}</td><td>{{unit}}</td><td>{{quantity}}</td></tr>
+        {{/items}}
+      </tbody>
+    </table>
+    <div class="footer">送餐员： {{dispatcher}} &nbsp;&nbsp; 打印时间：{{printTime}}</div>
+  </div>
+</body>
+</html>
